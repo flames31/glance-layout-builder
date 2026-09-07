@@ -8,17 +8,22 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import type { WidgetInstance } from './model/types';
+import type { SavedWidget } from './model/savedWidgets';
+import { instantiate, suggestName } from './model/savedWidgets';
 import { StoreProvider, useActivePage, useStore } from './model/store';
-import { decodeListId, decodeNewId } from './model/dragIds';
+import { decodeListId, decodeNewId, decodeSavedId } from './model/dragIds';
 import { getWidget } from './model/tree';
 import { pageIssues } from './model/validate';
-import { WIDGETS_BY_TYPE } from './catalog/widgets';
 import { clear } from './model/persist';
 import { Palette } from './components/Palette';
 import { Canvas } from './components/Canvas';
 import { PageTabs } from './components/PageTabs';
 import { Inspector } from './components/Inspector';
 import { ExportPanel } from './components/ExportPanel';
+import { PastePanel } from './components/PastePanel';
+import { CatalogPanel } from './components/CatalogPanel';
+import { ImportPanel } from './components/ImportPanel';
 import { ThemePanel } from './components/ThemePanel';
 import { isThemeEmpty } from './model/theme';
 
@@ -51,11 +56,14 @@ function resolveDropTarget(over: DragEndEvent['over']): DropTarget | null {
 }
 
 function Editor() {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, catalog, saved, saveWidget } = useStore();
   const page = useActivePage();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [showExport, setShowExport] = useState(false);
   const [showTheme, setShowTheme] = useState(false);
+  const [showPaste, setShowPaste] = useState(false);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const sensors = useSensors(
     // A small threshold so palette items stay clickable as well as draggable.
@@ -93,11 +101,30 @@ function Editor() {
     if (!target) return;
 
     const activeId = String(event.active.id);
+
+    const savedId = decodeSavedId(activeId);
+    if (savedId !== null) {
+      const entry = saved.find((s) => s.id === savedId);
+      if (!entry) return;
+      const widget = instantiate(entry);
+      if (target.parentId !== null && widget.children !== undefined) return;
+      dispatch({
+        type: 'add-widget',
+        pageId: target.pageId,
+        columnId: target.columnId,
+        parentId: target.parentId,
+        widgetType: widget.type,
+        index: target.index,
+        seed: widget,
+      });
+      return;
+    }
+
     const newType = decodeNewId(activeId);
 
     if (newType !== null) {
       // Containers cannot be nested inside other containers.
-      if (target.parentId !== null && WIDGETS_BY_TYPE.get(newType)?.container) return;
+      if (target.parentId !== null && catalog.byType.get(newType)?.container) return;
       dispatch({
         type: 'add-widget',
         pageId: target.pageId,
@@ -115,6 +142,8 @@ function Editor() {
 
   const draggingWidget = draggingId ? getWidget(state.config, draggingId) : undefined;
   const draggingNewType = draggingId ? decodeNewId(draggingId) : null;
+  const draggingSavedId = draggingId ? decodeSavedId(draggingId) : null;
+  const draggingSaved = draggingSavedId ? saved.find((s) => s.id === draggingSavedId) : undefined;
 
   /** Palette click adds to the first column that can take the widget. */
   const addFromPalette = (type: string) => {
@@ -129,6 +158,32 @@ function Editor() {
     });
   };
 
+  const addSeed = (widget: WidgetInstance) => {
+    const column = page.columns[0];
+    if (!column) return;
+    dispatch({
+      type: 'add-widget',
+      pageId: page.id,
+      columnId: column.id,
+      parentId: null,
+      widgetType: widget.type,
+      seed: widget,
+    });
+  };
+
+  /**
+   * Pasted widgets land on the canvas and are also kept in the side panel, so a
+   * second copy never means pasting the same YAML again.
+   */
+  const addPasted = (widgets: WidgetInstance[]) => {
+    for (const widget of widgets) {
+      addSeed(widget);
+      saveWidget(widget, suggestName(widget, catalog.byType.get(widget.type)?.label));
+    }
+  };
+
+  const addSaved = (entry: SavedWidget) => addSeed(instantiate(entry));
+
   return (
     <DndContext
       sensors={sensors}
@@ -142,6 +197,22 @@ function Editor() {
           <h1>GLANCE LAYOUT BUILDER</h1>
           <PageTabs />
           <span className="spacer" />
+          <button
+            className="ghost"
+            title="Load an existing glance.yml and rearrange it here"
+            onClick={() => setShowImport(true)}
+          >
+            Import
+          </button>
+          <button
+            className="ghost"
+            title="Match the widget menu to your own Glance build"
+            onClick={() => setShowCatalog(true)}
+          >
+            {catalog.source
+              ? `Catalog: ${catalog.source.label}${catalog.source.commit ? ` @ ${catalog.source.commit}` : ''}`
+              : 'Catalog: built-in'}
+          </button>
           <button
             className="ghost"
             title="Pick or customise the theme of the exported dashboard"
@@ -169,7 +240,11 @@ function Editor() {
         <div className="panes">
           <aside className="pane-left">
             <div className="pane-title">Widgets</div>
-            <Palette onAdd={addFromPalette} />
+            <Palette
+              onAdd={addFromPalette}
+              onAddSaved={addSaved}
+              onPaste={() => setShowPaste(true)}
+            />
           </aside>
 
           <main className="pane-main">
@@ -206,19 +281,30 @@ function Editor() {
             <div className="row">
               <span className="grip">⠿</span>
               <span className="label">
-                {WIDGETS_BY_TYPE.get(draggingWidget.type)?.label ?? draggingWidget.type}
+                {catalog.byType.get(draggingWidget.type)?.label ?? draggingWidget.type}
               </span>
+            </div>
+          </div>
+        ) : draggingSaved ? (
+          <div className="widget-card">
+            <div className="row">
+              <span className="label">{draggingSaved.name}</span>
             </div>
           </div>
         ) : draggingNewType ? (
           <div className="widget-card">
             <div className="row">
-              <span className="label">{WIDGETS_BY_TYPE.get(draggingNewType)?.label}</span>
+              <span className="label">{catalog.byType.get(draggingNewType)?.label}</span>
             </div>
           </div>
         ) : null}
       </DragOverlay>
 
+      {showImport && <ImportPanel onClose={() => setShowImport(false)} />}
+      {showCatalog && <CatalogPanel onClose={() => setShowCatalog(false)} />}
+      {showPaste && (
+        <PastePanel onImport={addPasted} onClose={() => setShowPaste(false)} />
+      )}
       {showTheme && <ThemePanel onClose={() => setShowTheme(false)} />}
       {showExport && <ExportPanel onClose={() => setShowExport(false)} />}
     </DndContext>

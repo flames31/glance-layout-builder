@@ -22,3 +22,12 @@ export function encodeNewId(widgetType: string): string {
 export function decodeNewId(id: string): string | null {
   return id.startsWith('new|') ? id.slice(4) : null;
 }
+
+/** Entries in the "My widgets" group drag as "a copy of saved widget X". */
+export function encodeSavedId(savedId: string): string {
+  return `saved|${savedId}`;
+}
+
+export function decodeSavedId(id: string): string | null {
+  return id.startsWith('saved|') ? id.slice(6) : null;
+}

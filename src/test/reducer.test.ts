@@ -198,3 +198,43 @@ describe('reducer enforces Glance layout rules', () => {
     expect(fresh.columns.length).toBeLessThanOrEqual(3);
   });
 });
+
+describe('set-height-hint', () => {
+  it('stores the hint outside props, so the emitter cannot pick it up', () => {
+    const { state, id } = add(initialState(), 0, 'custom-api');
+    const next = reducer(state, { type: 'set-height-hint', widgetId: id, px: 640 });
+
+    const widget = getWidget(next.config, id)!;
+    expect(widget.heightHint).toBe(640);
+    expect(widget.props).not.toHaveProperty('heightHint');
+    expect(Object.keys(widget.props)).toHaveLength(0);
+  });
+
+  it('rounds to whole pixels and refuses a zero height', () => {
+    const { state, id } = add(initialState(), 0, 'html');
+    expect(getWidget(reducer(state, { type: 'set-height-hint', widgetId: id, px: 412.6 }).config, id)!.heightHint).toBe(413);
+    expect(getWidget(reducer(state, { type: 'set-height-hint', widgetId: id, px: 0 }).config, id)!.heightHint).toBe(1);
+  });
+
+  it('clears the hint when given no value', () => {
+    const { state, id } = add(initialState(), 0, 'html');
+    const set = reducer(state, { type: 'set-height-hint', widgetId: id, px: 500 });
+    const cleared = reducer(set, { type: 'set-height-hint', widgetId: id, px: undefined });
+    expect(getWidget(cleared.config, id)!).not.toHaveProperty('heightHint');
+  });
+
+  it('reaches a widget nested inside a container', () => {
+    const { state, id: groupId } = add(initialState(), 0, 'group');
+    const page = state.config.pages[0]!;
+    const withChild = reducer(state, {
+      type: 'add-widget',
+      pageId: page.id,
+      columnId: page.columns[0]!.id,
+      parentId: groupId,
+      widgetType: 'custom-api',
+    });
+    const childId = withChild.selectedWidgetId!;
+    const next = reducer(withChild, { type: 'set-height-hint', widgetId: childId, px: 250 });
+    expect(getWidget(next.config, childId)!.heightHint).toBe(250);
+  });
+});

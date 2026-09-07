@@ -40,6 +40,23 @@ export function hslToString({ h, s, l }: HSL): string {
   return `${round(h)} ${round(s)} ${round(l)}`;
 }
 
+/**
+ * The inverse of `hslToString`, for reading a `theme:` block back in.
+ *
+ * Glance's `hslColorField` accepts `H S L` with optional `%` on the last two,
+ * which is what its own docs and every preset use.
+ */
+export function parseHsl(value: unknown): HSL | undefined {
+  if (typeof value !== 'string') return undefined;
+  const parts = value.trim().replace(/%/g, '').split(/\s+/);
+  if (parts.length !== 3) return undefined;
+  const [h, s, l] = parts.map(Number);
+  if (h === undefined || s === undefined || l === undefined) return undefined;
+  if (![h, s, l].every(Number.isFinite)) return undefined;
+  const color = { h, s, l };
+  return isValidHsl(color) ? color : undefined;
+}
+
 export function hslToCss({ h, s, l }: HSL): string {
   return `hsl(${round(h)}, ${round(s)}%, ${round(l)}%)`;
 }

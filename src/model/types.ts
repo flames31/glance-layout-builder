@@ -18,6 +18,15 @@ export type WidgetInstance = {
   props: Record<string, unknown>;
   /** Present only for container widgets (`group`, `split-column`). */
   children?: WidgetInstance[];
+  /**
+   * Editor-only height override, in real Glance pixels, for widgets whose size
+   * cannot be derived from config (`custom-api`, `html`, `extension`).
+   *
+   * Deliberately a sibling of `props` rather than a key inside it: the emitter
+   * passes unrecognised props through to the YAML, so anything parked in there
+   * would end up in the exported config.
+   */
+  heightHint?: number;
 };
 
 export type Column = {

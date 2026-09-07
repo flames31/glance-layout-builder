@@ -52,6 +52,25 @@ export type FieldDef =
       help?: string;
     }
   | {
+      /** A `map[string]string` in Glance, such as `headers`. */
+      kind: 'keyValue';
+      key: string;
+      label: string;
+      required?: boolean;
+      help?: string;
+    }
+  | {
+      /**
+       * A shape too complex to model as a form. Edited as YAML and stored as
+       * the parsed value, so it round-trips into the export untouched.
+       */
+      kind: 'raw';
+      key: string;
+      label: string;
+      required?: boolean;
+      help?: string;
+    }
+  | {
       kind: 'objectList';
       key: string;
       label: string;
@@ -68,7 +87,9 @@ export type WidgetCategory =
   | 'Media'
   | 'Utility'
   | 'Layout'
-  | 'Advanced';
+  | 'Advanced'
+  /** Widgets discovered in an uploaded catalog that this build does not ship. */
+  | 'Imported';
 
 export type WidgetDef = {
   /** Exact Glance `type:` value. */

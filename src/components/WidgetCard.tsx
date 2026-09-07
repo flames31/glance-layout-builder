@@ -1,9 +1,9 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { WidgetInstance } from '../model/types';
-import { WIDGETS_BY_TYPE } from '../catalog/widgets';
 import { missingRequiredFields } from '../model/validate';
 import { useStore } from '../model/store';
+import { estimateHeight } from '../model/size';
 import { WidgetList } from './WidgetList';
 
 type Props = {
@@ -13,8 +13,8 @@ type Props = {
 };
 
 export function WidgetCard({ widget, pageId, columnId }: Props) {
-  const { state, dispatch } = useStore();
-  const def = WIDGETS_BY_TYPE.get(widget.type);
+  const { state, dispatch, catalog } = useStore();
+  const def = catalog.byType.get(widget.type);
   const missing = missingRequiredFields(widget);
   const selected = state.selectedWidgetId === widget.id;
 
@@ -24,6 +24,11 @@ export function WidgetCard({ widget, pageId, columnId }: Props) {
   });
 
   const title = typeof widget.props['title'] === 'string' ? widget.props['title'] : '';
+
+  // Containers size themselves to the widgets dropped inside them; everything
+  // else gets a body scaled to the height it will occupy on the dashboard.
+  const size = estimateHeight(widget);
+  const bodyHeight = def?.container ? undefined : `calc(${size.px} * var(--px-scale))`;
 
   return (
     <div
@@ -74,6 +79,15 @@ export function WidgetCard({ widget, pageId, columnId }: Props) {
           </button>
         </span>
       </div>
+
+      {!def?.container && (
+        <div className="card-body" style={{ height: bodyHeight }}>
+          <span className="card-size">
+            {widget.type} · {size.basis === 'exact' ? '' : '~'}
+            {size.px}px
+          </span>
+        </div>
+      )}
 
       {def?.container && (
         <div className="container-body">

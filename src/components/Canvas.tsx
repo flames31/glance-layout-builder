@@ -1,6 +1,7 @@
 import type { Page } from '../model/types';
 import { useStore } from '../model/store';
 import { canAddColumn, canRemoveColumn, canSetColumnSize } from '../model/validate';
+import { estimateColumn } from '../model/size';
 import { WidgetList } from './WidgetList';
 
 /**
@@ -15,10 +16,17 @@ export function Canvas({ page }: { page: Page }) {
     <div className="columns" onClick={() => dispatch({ type: 'select-widget', widgetId: null })}>
       {page.columns.map((column) => {
         const otherSize = column.size === 'small' ? 'full' : 'small';
+        const height = estimateColumn(column.widgets);
+        const tallest = height > 0 && height === Math.max(...page.columns.map((c) => estimateColumn(c.widgets)));
         return (
           <div className={`column ${column.size}`} key={column.id}>
             <div className="column-head">
               <span>{column.size}</span>
+              {height > 0 && (
+                <span className={tallest ? 'column-height tallest' : 'column-height'}>
+                  ~{height}px
+                </span>
+              )}
               <span className="spacer" />
               <button
                 title={`Change to ${otherSize}`}

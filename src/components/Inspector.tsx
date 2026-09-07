@@ -1,9 +1,10 @@
 import type { Page, PageWidth } from '../model/types';
 import { SHARED_FIELDS } from '../catalog/types';
-import { WIDGETS_BY_TYPE } from '../catalog/widgets';
 import { getWidget } from '../model/tree';
 import { useStore } from '../model/store';
 import { slugify } from '../export/toYaml';
+import { DEFAULT_HINT_PX, estimateHeight } from '../model/size';
+import { suggestName } from '../model/savedWidgets';
 import { FieldRenderer } from './fields/FieldRenderer';
 
 const WIDTHS: PageWidth[] = ['default', 'slim', 'wide'];
@@ -16,11 +17,11 @@ export function Inspector({ page }: { page: Page }) {
 }
 
 function WidgetForm({ widgetId }: { widgetId: string }) {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, catalog, saved, saveWidget } = useStore();
   const widget = getWidget(state.config, widgetId);
   if (!widget) return null;
 
-  const def = WIDGETS_BY_TYPE.get(widget.type);
+  const def = catalog.byType.get(widget.type);
   const set = (key: string, value: unknown) => dispatch({ type: 'set-prop', widgetId, key, value });
 
   return (
@@ -51,6 +52,88 @@ function WidgetForm({ widgetId }: { widgetId: string }) {
           onChange={(v) => set(field.key, v)}
         />
       ))}
+
+      {def && def.extraFields.length > 0 && (
+        <details className="advanced">
+          <summary>
+            {def.extraFields.length} more propert{def.extraFields.length === 1 ? 'y' : 'ies'} your
+            Glance accepts
+          </summary>
+          <p className="desc">
+            Read from your Glance source, so these carry no descriptions or defaults. Anything left
+            empty is omitted and Glance applies its own default.
+          </p>
+          {def.extraFields.map((field) => (
+            <FieldRenderer
+              key={field.key}
+              field={field}
+              value={widget.props[field.key]}
+              onChange={(v) => set(field.key, v)}
+            />
+          ))}
+        </details>
+      )}
+
+      {def && !def.available && (
+        <p className="warn-text">
+          Your uploaded catalog has no <code>{widget.type}</code>. Glance would reject this config
+          with <code>unknown widget type</code>.
+        </p>
+      )}
+
+      <HeightField widgetId={widgetId} />
+
+      <div className="field">
+        <button
+          onClick={() => saveWidget(widget, suggestName(widget, def?.label))}
+          title="Keep this widget, as configured, in the side panel so it can be placed again"
+        >
+          Save to panel
+        </button>
+        {saved.some((entry) => entry.widget.type === widget.type) && (
+          <span className="help">
+            Saved widgets live under <strong>My widgets</strong> in the panel. Saving again adds a
+            separate copy.
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Only offered for widgets whose height cannot be derived from config — the
+ * ones rendering content Glance itself only discovers at request time.
+ */
+function HeightField({ widgetId }: { widgetId: string }) {
+  const { state, dispatch } = useStore();
+  const widget = getWidget(state.config, widgetId);
+  if (!widget) return null;
+
+  const size = estimateHeight(widget);
+  if (size.basis !== 'hint') return null;
+
+  return (
+    <div className="field">
+      <label>Approximate height</label>
+      <input
+        type="number"
+        min={1}
+        step={10}
+        value={widget.heightHint ?? DEFAULT_HINT_PX}
+        onChange={(e) => {
+          const px = Number(e.target.value);
+          dispatch({
+            type: 'set-height-hint',
+            widgetId,
+            px: e.target.value === '' || !Number.isFinite(px) ? undefined : px,
+          });
+        }}
+      />
+      <span className="help">
+        This widget renders whatever its source returns, so its size cannot be worked out from the
+        config. Set roughly how tall it is on your dashboard. Layout only — never exported.
+      </span>
     </div>
   );
 }

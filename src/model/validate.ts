@@ -3,7 +3,7 @@ import type { FieldDef } from '../catalog/types';
 import type { HSL, ThemeConfig } from './theme';
 import { isThemeEmpty, isValidHsl } from './theme';
 import { DURATION_PATTERN } from '../catalog/types';
-import { WIDGETS_BY_TYPE } from '../catalog/widgets';
+import { lookup } from './catalogSource';
 import { slugify } from '../export/toYaml';
 import { walkWidgets } from './tree';
 
@@ -52,7 +52,7 @@ export function canSetColumnSize(page: Page, columnId: string, size: ColumnSize)
 
 /** Names of required fields the user has not filled in. */
 export function missingRequiredFields(widget: WidgetInstance): string[] {
-  const def = WIDGETS_BY_TYPE.get(widget.type);
+  const def = lookup(widget.type);
   if (!def) return [];
   return def.fields.filter((f) => f.required && isBlank(f, widget.props[f.key])).map((f) => f.label);
 }
@@ -100,6 +100,15 @@ export function pageIssues(page: Page, allPages: Page[]): Issue[] {
   if (clash) at(`Slug "${slug}" is already used by another page.`);
 
   for (const { widget } of walkWidgets(page)) {
+    const def = lookup(widget.type);
+    if (def && !def.available) {
+      issues.push({
+        pageId: page.id,
+        widgetId: widget.id,
+        message: `${label(widget)} is not in your uploaded catalog — Glance would reject this config with "unknown widget type: ${widget.type}".`,
+      });
+    }
+
     const missing = missingRequiredFields(widget);
     if (missing.length > 0) {
       issues.push({
@@ -122,7 +131,7 @@ export function pageIssues(page: Page, allPages: Page[]): Issue[] {
 }
 
 function label(widget: WidgetInstance): string {
-  return WIDGETS_BY_TYPE.get(widget.type)?.label ?? widget.type;
+  return lookup(widget.type)?.label ?? widget.type;
 }
 
 /** Bounds from `hslColorField` and the multiplier fields in themeProperties. */

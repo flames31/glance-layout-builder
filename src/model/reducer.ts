@@ -1,7 +1,7 @@
 import type { Column, ColumnSize, Config, Page, WidgetInstance } from './types';
 import type { ThemeConfig } from './theme';
 import { newId } from './types';
-import { WIDGETS_BY_TYPE } from '../catalog/widgets';
+import { lookup } from './catalogSource';
 import { canAddColumn, canRemoveColumn, canSetColumnSize } from './validate';
 import { extractWidget, mapWidgetList } from './tree';
 
@@ -30,6 +30,8 @@ export type Action =
       parentId: string | null;
       widgetType: string;
       index?: number;
+      /** Pre-built widget to insert instead of a blank one, for pasted YAML. */
+      seed?: WidgetInstance;
     }
   | {
       type: 'move-widget';
@@ -41,7 +43,8 @@ export type Action =
     }
   | { type: 'remove-widget'; widgetId: string }
   | { type: 'duplicate-widget'; widgetId: string }
-  | { type: 'set-prop'; widgetId: string; key: string; value: unknown };
+  | { type: 'set-prop'; widgetId: string; key: string; value: unknown }
+  | { type: 'set-height-hint'; widgetId: string; px: number | undefined };
 
 export function newColumn(size: ColumnSize): Column {
   return { id: newId('col'), size, widgets: [] };
@@ -57,7 +60,7 @@ export function newPage(name: string): Page {
 }
 
 export function newWidget(type: string): WidgetInstance {
-  const def = WIDGETS_BY_TYPE.get(type);
+  const def = lookup(type);
   const widget: WidgetInstance = { id: newId('w'), type, props: {} };
   if (def?.container) widget.children = [];
   return widget;
@@ -96,7 +99,7 @@ function insertAt<T>(list: T[], item: T, index?: number): T[] {
 }
 
 /** Fresh ids for a widget and everything under it, so a copy is independent. */
-function cloneWidget(widget: WidgetInstance): WidgetInstance {
+export function cloneWidget(widget: WidgetInstance): WidgetInstance {
   const copy: WidgetInstance = {
     id: newId('w'),
     type: widget.type,
@@ -170,7 +173,9 @@ export function reducer(state: EditorState, action: Action): EditorState {
       return { ...state, selectedWidgetId: action.widgetId };
 
     case 'add-widget': {
-      const widget = newWidget(action.widgetType);
+      const widget = action.seed ?? newWidget(action.widgetType);
+      // Same rule the drag handler enforces: Glance rejects a nested container.
+      if (action.parentId !== null && widget.children !== undefined) return state;
       const next = withColumn(state, action.pageId, action.columnId, (column) => ({
         ...column,
         widgets: mapWidgetList(column.widgets, action.parentId, (list) =>
@@ -256,30 +261,47 @@ export function reducer(state: EditorState, action: Action): EditorState {
         : state;
     }
 
-    case 'set-prop': {
-      const setProp = (list: WidgetInstance[]): WidgetInstance[] =>
-        list.map((widget) => {
-          if (widget.id === action.widgetId) {
-            const props = { ...widget.props };
-            if (action.value === undefined || action.value === '') delete props[action.key];
-            else props[action.key] = action.value;
-            return { ...widget, props };
-          }
-          return widget.children ? { ...widget, children: setProp(widget.children) } : widget;
-        });
+    case 'set-prop':
+      return withWidget(state, action.widgetId, (widget) => {
+        const props = { ...widget.props };
+        if (action.value === undefined || action.value === '') delete props[action.key];
+        else props[action.key] = action.value;
+        return { ...widget, props };
+      });
 
-      return {
-        ...state,
-        config: {
-          ...state.config,
-          pages: state.config.pages.map((page) => ({
-            ...page,
-            columns: page.columns.map((column) => ({ ...column, widgets: setProp(column.widgets) })),
-          })),
-        },
-      };
-    }
+    case 'set-height-hint':
+      return withWidget(state, action.widgetId, (widget) => {
+        if (action.px === undefined || !Number.isFinite(action.px)) {
+          const { heightHint: _dropped, ...rest } = widget;
+          return rest;
+        }
+        return { ...widget, heightHint: Math.max(1, Math.round(action.px)) };
+      });
   }
+}
+
+/** Applies `patch` to one widget, wherever it sits in whichever page. */
+function withWidget(
+  state: EditorState,
+  widgetId: string,
+  patch: (widget: WidgetInstance) => WidgetInstance,
+): EditorState {
+  const walk = (list: WidgetInstance[]): WidgetInstance[] =>
+    list.map((widget) => {
+      if (widget.id === widgetId) return patch(widget);
+      return widget.children ? { ...widget, children: walk(widget.children) } : widget;
+    });
+
+  return {
+    ...state,
+    config: {
+      ...state.config,
+      pages: state.config.pages.map((page) => ({
+        ...page,
+        columns: page.columns.map((column) => ({ ...column, widgets: walk(column.widgets) })),
+      })),
+    },
+  };
 }
 
 /** Inserts a copy directly after the original, wherever the original lives. */
